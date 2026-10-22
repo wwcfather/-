@@ -1,0 +1,83 @@
+********************************************************************
+* 文件：SaveLoadShapeModel.hdev
+* 用途：把“创建/训练好的通用形状模板(Generic Shape Model)”保存到本地磁盘，
+*       并在下次运行时直接读取，避免每次启动都重新训练。
+*
+* 说明：通用形状模型保存在一个“模型句柄”里(下面叫 ModelID，HTuple 类型)，
+*       句柄是进程内的内存对象，程序退出即消失；要长期保存必须显式写盘。
+*
+* 注意：不能用 write_object / read_object —— 那两个算子只保存“图像对象(HObject：
+*       Region/XLD/Image)”，不能保存模型句柄。
+********************************************************************
+
+
+* ============================================================
+* 方式一（推荐）：write_shape_model / read_shape_model
+*   直接把模型写成一个 .shm 文件，最简单、最常用。
+* ============================================================
+
+* ---------- 保存（训练完成后调用一次） ----------
+create_generic_shape_model (ModelID)
+set_generic_shape_model_param (ModelID, 'metric', 'use_polarity')
+train_generic_shape_model (TemplateImage, ModelID)
+
+* 把训练好的通用形状模型保存到本地文件（扩展名习惯用 .shm）
+write_shape_model (ModelID, 'D:/vm/model/connector.shm')
+
+
+* ---------- 读取（下次运行时直接加载，无需再训练） ----------
+* read_shape_model 得到的就是可以直接用于 find_generic_shape_model 的模型句柄
+read_shape_model ('D:/vm/model/connector.shm', ModelID)
+
+* 之后照常使用：
+* find_generic_shape_model (Image, ModelID, MatchResultID, NumMatchResult)
+
+
+
+* ============================================================
+* 方式二（跨版本更稳）：serialize + fwrite_serialized_item
+*   把模型序列化成“可序列化项”，再写盘；好处是与 HALCON 版本解耦，
+*   且有些旧版本/特定模型不支持方式一时可用此法。
+* ============================================================
+
+* ---------- 保存 ----------
+serialize_shape_model (ModelID, SerializedItemHandle)
+open_file ('D:/vm/model/connector.shm', 'output_binary', FileHandle)
+fwrite_serialized_item (FileHandle, SerializedItemHandle)
+close_file (FileHandle)
+clear_serialized_item (SerializedItemHandle)
+
+* ---------- 读取 ----------
+open_file ('D:/vm/model/connector.shm', 'input_binary', FileHandle)
+fread_serialized_item (FileHandle, SerializedItemHandle)
+close_file (FileHandle)
+deserialize_shape_model (SerializedItemHandle, ModelID)
+clear_serialized_item (SerializedItemHandle)
+
+
+
+* ============================================================
+* 方式三（工程化推荐）：存在即读取，不存在才“创建+训练+保存”
+*   这样算法过程无论第几次运行都能拿到模型：首次自动训练并落盘，
+*   之后每次直接读文件，秒级启动。
+* ============================================================
+
+ModelFile := 'D:/vm/model/connector.shm'
+
+* file_exists 判断文件是否已存在
+file_exists (ModelFile, FileExists)
+if (not FileExists)
+    * 首次：训练并保存
+    create_generic_shape_model (ModelID)
+    set_generic_shape_model_param (ModelID, 'metric', 'use_polarity')
+    train_generic_shape_model (TemplateImage, ModelID)
+    write_shape_model (ModelID, ModelFile)
+else
+    * 已存在：直接读取
+    read_shape_model (ModelFile, ModelID)
+endif
+
+* 把 ModelID 作为过程的“输入控制参数”或“输出控制参数”传出到进程外，
+* 即可让 .NET 端在本进程内复用同一个模型句柄（避免每次 find 都重新训练）。
+* 注意：模型句柄是进程内的，C# 侧一次 read/训练后在进程内缓存即可；
+*       跨进程“传句柄”没有意义，传的是“文件路径”，由各自进程自行 read。

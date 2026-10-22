@@ -1,0 +1,144 @@
+********************************************************************
+* 文件：match_connector_Exportable.hdev
+* 用途：把原来的“模板匹配 + dev_display 显示”脚本，改写成
+*       可以通过 HDevEngine 传出进程的“过程(HDevelop Procedure)”。
+*
+* 核心原则（为什么原来传不出去）：
+*   dev_display / dev_set_color / dev_set_draw / disp_obj ... 这些是“窗口显示算子”，
+*   它们只是把图形画到某个窗口中，属于函数的副作用，不产生任何可返回的数据，
+*   所以 HDevEngine 在进程外永远拿不到它们画的东西。
+*   要传出去，只有两条路：
+*     (A) 把图形对象(Region / XLD / Image)本身作为“输出图形参数”返回；  ← 本文件用法
+*     (B) 把图形画进一张图像(paint_region / paint_xld)或窗口截图(dump_window_image)，
+*         再把这张图像作为“输出图像参数”返回。
+*
+* 使用步骤：
+*   1) 在 HDevelop 中把下面的代码建成一个“过程”，过程接口填成下面这一行：
+*
+*      procedure match_connector (
+*          Image                             :   // 输入图形参数
+*          MatchContours, TemplateContours   :   // 输出图形参数
+*          :                                     // 输入控制参数(本算法不需要)
+*          NumMatchResult, MatchRows, MatchColumns, MatchAngles,
+*          MatchScaleRows, MatchScaleColumns, MatchScores )  // 输出控制参数
+*
+*   2) 在该过程中右键 → “导出过程(Export Procedure)”，保存为 match_connector.hdvp
+*   3) 把 .hdvp 放到本项目读取的目录，用软件打开即可：
+*        - Image          由“图片序列”自动喂入每个文件
+*        - MatchContours / TemplateContours  自动叠加显示在识别结果图上(绿色轮廓)
+*        - NumMatchResult / MatchRows ...    显示在“输出控制参数”里
+*
+* 注意：本文件已删除全部 dev_* 显示算子。原因有两个：
+*       一是它们传不出去；二是 HDevEngine 在无图形窗口的后台执行时，
+*       dev_open_window 会直接报错导致过程执行失败。
+********************************************************************
+
+* ---------- 读取图像尺寸（保留你原来的代码，但不再开窗口） ----------
+get_image_size (Image, Width, Height)
+
+* ============================================================
+* 第一部分：模板初始化（只在程序启动时执行一次）
+* ============================================================
+
+* 在模板图像上绘制矩形 ROI 作为模板区域
+* 参数：中心行、中心列、旋转角、半长、半宽
+gen_rectangle2 (ModelRegion, 245.136, 430.652, rad(12.4681), 320.707, 131.74)
+
+* 将图像裁减到 ROI 范围内，得到纯模板图像
+reduce_domain (Image, ModelRegion, TemplateImage)
+
+* 创建通用形状模型句柄
+create_generic_shape_model (ModelID)
+
+* 设置模型参数：使用极性匹配（要求目标与模板明暗一致）
+set_generic_shape_model_param (ModelID, 'metric', 'use_polarity')
+
+* 用模板图像训练模型
+train_generic_shape_model (TemplateImage, ModelID)
+
+* 提取模型的轮廓（用于后续显示，作为“输出图形参数”传出去）
+get_shape_model_contours (ModelContours, ModelID, 1)
+
+* 获取模型参考点：求 ROI 区域的面积与重心
+area_center (ModelRegion, ModelRegionArea, RefRow, RefColumn)
+
+* 构造刚体变换矩阵：将模型轮廓平移到参考位置
+vector_angle_to_rigid (0, 0, 0, RefRow, RefColumn, 0, HomMat2DRef)
+
+* 对模型轮廓应用变换，得到显示用的模板轮廓
+affine_trans_contour_xld (ModelContours, TemplateContours, HomMat2DRef)
+
+* ============================================================
+* 第二部分：模板应用（对每帧图像执行）
+* ============================================================
+
+* 设置搜索参数：不搜索延伸到图像边界之外的模型
+set_generic_shape_model_param (ModelID, 'border_shape_models', 'false')
+
+* 在图像中搜索模板，返回结果句柄与匹配数量
+find_generic_shape_model (Image, ModelID, MatchResultID, NumMatchResult)
+
+* 关键一步：先造一个空对象，保证“0 个匹配”时输出图形参数也存在，
+* 否则 HDevEngine 读取输出对象会报错（过程无该参数）。
+gen_empty_obj (MatchContours)
+
+* 控制输出的容器（元组），同样先置空，保证 0 个匹配时也能正常返回
+MatchRows := []
+MatchColumns := []
+MatchAngles := []
+MatchScaleRows := []
+MatchScaleColumns := []
+MatchScores := []
+
+* 遍历每个匹配结果
+for I := 0 to NumMatchResult - 1 by 1
+
+    * 取出第 I 个匹配的轮廓对象，用 concat_obj 汇总到 MatchContours
+    get_generic_shape_model_result_object (MatchContour, MatchResultID, I, 'contours')
+    concat_obj (MatchContours, MatchContour, MatchContours)
+
+    * 提取该匹配的各项参数（控制参数）
+    get_generic_shape_model_result (MatchResultID, I, 'row', Row)                 * 中心行坐标
+    get_generic_shape_model_result (MatchResultID, I, 'column', Column)           * 中心列坐标
+    get_generic_shape_model_result (MatchResultID, I, 'angle', Angle)             * 旋转角度
+    get_generic_shape_model_result (MatchResultID, I, 'scale_row', ScaleRow)      * 行方向缩放
+    get_generic_shape_model_result (MatchResultID, I, 'scale_column', ScaleColumn)* 列方向缩放
+    get_generic_shape_model_result (MatchResultID, I, 'score', Score)             * 匹配分数
+
+    * 把本轮的数值追加到元组中
+    MatchRows := [MatchRows, Row]
+    MatchColumns := [MatchColumns, Column]
+    MatchAngles := [MatchAngles, Angle]
+    MatchScaleRows := [MatchScaleRows, ScaleRow]
+    MatchScaleColumns := [MatchScaleColumns, ScaleColumn]
+    MatchScores := [MatchScores, Score]
+
+    * ---------- 第三部分：测量对齐（随工件位姿同步变换） ----------
+    * 取出第 I 个匹配的变换矩阵
+    get_generic_shape_model_result (MatchResultID, I, 'hom_mat_2d', HomMat2D)
+
+    * 创建单位矩阵作为对齐矩阵
+    hom_mat2d_identity (AlignmentHomMat2D)
+
+    * 先平移到模板参考点（消除模板本身的偏移）
+    hom_mat2d_translate (AlignmentHomMat2D, -RefRow, -RefColumn, AlignmentHomMat2D)
+
+    * 与匹配得到的变换矩阵复合，得到最终对齐矩阵
+    * 功能：把模板坐标系下的测量框/点，变换到当前图像中工件所在位置
+    hom_mat2d_compose (HomMat2D, AlignmentHomMat2D, AlignmentHomMat2D)
+
+    * 在此处插入你的测量代码（例如卡尺测量助手生成的代码）。
+    * 若想让测量框/测量轮廓也能显示到识别结果上，就用它的“轮廓”形式
+    * （例如 gen_rectangle2_contour_xld / gen_measure_rectangle2 的测量区域轮廓），
+    * 经 AlignmentHomMat2D 变换后，像下面这样再汇总到一个输出图形参数：
+    *
+    *   affine_trans_contour_xld (MeasureContour, MeasureContourAligned, AlignmentHomMat2D)
+    *   concat_obj (AllMeasureContours, MeasureContourAligned, AllMeasureContours)
+    *
+    * 其中 AllMeasureContours 需在过程接口里再声明为一个“输出图形参数”，
+    * 并在循环前用 gen_empty_obj (AllMeasureContours) 初始化。
+
+endfor
+
+* 释放模型句柄（可选；过程结束时建议清理）
+clear_obj (ModelID)

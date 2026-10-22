@@ -1,0 +1,20 @@
+# Visual Studio and build outputs
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local diagnostics and generated files
+诊断结果.txt
+*.log
+
+# HALCON binaries, licenses and local runtime settings
+*.dll
+*.pdb
+*.exe
+*.lic
+license.dat
+settings.txt

@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>halconDemo</RootNamespace>
+    <AssemblyName>halconDemo</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+
+  <!-- ==================== 用户配置区: 只需要改下面两行 ==================== -->
+
+  <PropertyGroup>
+    <!-- 第 1 行: 你的 HALCON 安装根目录, 末尾不要带斜杠 -->
+    <HALCONROOT>D:/HALCON26.05/HALCON-26.05-Progress</HALCONROOT>
+
+    <!-- 第 2 行: halcondotnet.dll 所在的文件夹, 末尾不要带斜杠。
+         找法: 打开上面的 HALCONROOT 里的 bin 文件夹, 在右上角搜索框输入 halcondotnet.dll,
+         把它所在的文件夹完整路径填到这里。
+         常见位置: bin/dotnet/net6.0 、bin/dotnet35 、bin/dotnet4 、bin/dotnetcore -->
+    <HalconManagedDir>D:\HALCON26.05\HALCON-26.05-Progress\bin\dotnet20</HalconManagedDir>
+  </PropertyGroup>
+
+  <!-- ==================================================================== -->
+
+  <ItemGroup>
+    <Reference Include="halcondotnet">
+      <HintPath>$(HalconManagedDir)/halcondotnet.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="hdevenginedotnet">
+      <HintPath>$(HalconManagedDir)/hdevenginedotnet.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckHalcon" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(HalconManagedDir)/halcondotnet.dll')"
+           Text="在 [$(HalconManagedDir)] 没有找到 halcondotnet.dll 。解决方法: 打开文件夹 [$(HALCONROOT)\bin] , 在右上角搜索 halcondotnet.dll , 把它所在文件夹的路径填到 halconDemo.csproj 的 HalconManagedDir , 然后重新生成。" />
+  </Target>
+
+  <Target Name="CopyHalconNativeDlls" AfterTargets="Build" Condition="Exists('$(HALCONROOT)/bin/x64-win64')">
+    <ItemGroup>
+      <HalconNative Include="$(HALCONROOT)/bin/x64-win64/*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(HalconNative)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
