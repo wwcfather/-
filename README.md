@@ -122,5 +122,3 @@ dotnet build .\halconDemo\halconDemo.csproj -c Debug
 ```powershell
 dotnet build .\halconDemo\halconDemo.csproj -c Debug -p:HALCONROOT="D:/kingOR/Halcon/HALCON-24.11-Progress-Steady" -p:HalconManagedDir="D:/kingOR/Halcon/HALCON-24.11-Progress-Steady/bin/dotnet35"
 ```
-
-构建报告 2 条 `CS8604` 警告，均来自 `Services/HalconTupleHelper.cs` 第 83 行的同一处可空值提示（WPF 临时项目与正式项目各报告一次）。本次验证覆盖编译，未覆盖实际算法识别、相机或外部设备联调。
